@@ -30,5 +30,6 @@ PKG_CHECK_MODULES([PANGOCAIRO], [pangocairo])
 
 AC_CONFIG_FILES([Makefile
 		 src/Makefile
-		 src/display/Makefile])
+		 src/display/Makefile
+		 src/examples/Makefile])
 AC_OUTPUT

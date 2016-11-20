@@ -40,7 +40,6 @@ private:
 
 public:
   XWindow( const unsigned int width, const unsigned int height );
-  XWindow( XCBObject & original, const unsigned int width, const unsigned int height );
   ~XWindow();
 
   /* set the name of the window */

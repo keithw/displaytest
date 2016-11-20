@@ -27,3 +27,5 @@ Makefile.in
 /libtool
 /ltmain.sh
 /compile
+
+/src/examples/rgb-example
