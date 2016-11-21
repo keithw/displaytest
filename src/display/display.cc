@@ -1,8 +1,6 @@
 #include <stdexcept>
 #include <iostream>
-#include <cstdlib>
 #include <sstream>
-#include <cstring>
 
 #include <xcb/present.h>
 

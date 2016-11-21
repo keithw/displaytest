@@ -1,7 +1,4 @@
 #include <cstdlib>
-#include <chrono>
-#include <thread>
-#include <iostream>
 
 #include "display.hh"
 

@@ -3,9 +3,7 @@
 
 #include <xcb/xcb.h>
 
-#include <string>
 #include <memory>
-#include <tuple>
 #include <vector>
 
 class XCBObject
