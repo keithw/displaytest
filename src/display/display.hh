@@ -2,11 +2,11 @@
 #define DISPLAY_HH
 
 #include <xcb/xcb.h>
-#include <xcb/xcb_image.h>
 
 #include <string>
 #include <memory>
 #include <tuple>
+#include <vector>
 
 class XCBObject
 {
@@ -70,6 +70,20 @@ public:
   XWindow & operator=( const XWindow & other ) = delete;
 };
 
+class GraphicsContext : public XCBObject
+{
+private:
+  xcb_gcontext_t gc_ = xcb_generate_id( connection().get() );
+
+public:
+  GraphicsContext( XPixmap & pixmap );
+
+  /* get the underlying gc */
+  const xcb_gcontext_t & xcb_gc() const { return gc_; }
+};
+
+class XImage;
+
 class XPixmap : public XCBObject
 {
 private:
@@ -90,25 +104,12 @@ public:
   /* get the pixmap's size */
   std::pair<unsigned int, unsigned int> size() const { return size_; }
 
+  /* put an image on the pixmap */
+  void put( const XImage & image, const GraphicsContext & gc );
+
   /* prevent copying */
   XPixmap( const XPixmap & other ) = delete;
   XPixmap & operator=( const XPixmap & other ) = delete;
-
-  /* allow moving */
-  XPixmap( XPixmap && other );
-  XPixmap & operator=( XPixmap && other );
-};
-
-class GraphicsContext : public XCBObject
-{
-private:
-  xcb_gcontext_t gc_ = xcb_generate_id( connection().get() );
-
-public:
-  GraphicsContext( XPixmap & pixmap );
-
-  /* get the underlying gc */
-  const xcb_gcontext_t & xcb_gc() const { return gc_; }
 };
 
 struct RGBPixel
@@ -116,21 +117,20 @@ struct RGBPixel
   uint8_t blue, green, red, xxx;
 };
 
-class XImage : public XCBObject
+class XImage
 {
 private:
-  xcb_image_t * image_;
+  unsigned int width_, height_;
+  std::vector<RGBPixel> image_;
 
 public:
   XImage( XPixmap & pixmap );
-  ~XImage();
 
-  void put( XPixmap & pixmap, const GraphicsContext & gc );
-  RGBPixel * pixel( const unsigned int width, const unsigned int height );
+  RGBPixel & pixel( const unsigned int column, const unsigned int row );
+  const uint8_t * data() const { return &image_.at( 0 ).blue; }
 
-  /* prevent copying */
-  XImage( const XImage & other ) = delete;
-  XImage & operator=( const XImage & other ) = delete;
+  unsigned int width() const { return width_; }
+  unsigned int height() const { return height_; }
 };
 
 #endif

@@ -152,35 +152,45 @@ XPixmap::XPixmap( XWindow & window )
     visual_( window.xcb_visual() ),
     size_( window.size() )
 {
+  const uint8_t depth = default_screen()->root_depth;
+
+  /* make sure we are in 24-bit color mode */
+  if ( depth != 24 ) {
+    throw runtime_error( string( "Needed 24-bit depth, but screen has " )
+			 + to_string( depth )
+			 + " instead" );
+  }
+
+  /* make sure screen is R'G'B' 8-bits-per-channel */
+  if ( visual_->bits_per_rgb_value != 8 ) {
+    throw runtime_error( string( "Needed 8 bits-per-color, got " )
+			 + to_string( visual_->bits_per_rgb_value )
+			 + " instead" );
+  }
+
+  /* make sure the colors are where we expect them */
+  if ( visual_->red_mask != 0xFF0000
+       or visual_->green_mask != 0x00FF00
+       or visual_->blue_mask != 0x0000FF ) {
+    std::ostringstream color_layout;
+    color_layout << "Unexpected color layout: ";
+    color_layout << hex << "red=" << visual_->red_mask;
+    color_layout << hex << ", green=" << visual_->green_mask;
+    color_layout << hex << ", blue=" << visual_->blue_mask;
+    throw runtime_error( color_layout.str() );
+  }
+
+  /* finally, make the pixmap */
   check_noreply( "xcb_create_pixmap_checked",
 		 xcb_create_pixmap_checked( connection().get(),
-					    default_screen()->root_depth,
+					    depth,
 					    pixmap_,
 					    window.xcb_window(),
 					    size_.first, size_.second ) );
 }
 
-XPixmap::XPixmap( XPixmap && other )
-  : XCBObject( move( other ) ),
-    pixmap_( other.pixmap_ ),
-    visual_( other.visual_ ),
-    size_( other.size_ )
-{}
-
-XPixmap & XPixmap::operator=( XPixmap && other )
-{
-  this->~XPixmap();
-  new (this) XPixmap( move( other ) );
-  return *this;
-}
-
 XPixmap::~XPixmap()
 {
-  if ( not connection() ) {
-    /* moved away */
-    return;
-  }
-
   try {
     check_noreply( "xcb_free_pixmap_checked",
 		   xcb_free_pixmap_checked( connection().get(), pixmap_ ) );
@@ -240,88 +250,44 @@ void XWindow::event_loop()
 }
 
 XImage::XImage( XPixmap & pixmap )
-  : XCBObject( pixmap ),
-    image_( notnull( "xcb_image_create_native",
-		     xcb_image_create_native( connection().get(),
-					      pixmap.size().first,
-					      pixmap.size().second,
-					      XCB_IMAGE_FORMAT_Z_PIXMAP,
-					      default_screen()->root_depth,
-					      nullptr,
-					      0,
-					      nullptr ) ) )
-{
-  /* confirm image has expected characteristics */
-  if ( image_->bpp != 32 ) {
-    throw runtime_error( "image storage not 32 bits per pixel" );
-  }
+  : width_( pixmap.size().first ),
+    height_( pixmap.size().second ),
+    image_( width_ * height_ )
+{}
 
-  /* make sure it's R'G'B' 8-bits-per-channel */
-  const auto visual_type = pixmap.xcb_visual();
-
-  if ( visual_type->bits_per_rgb_value != 8 ) {
-    throw runtime_error( string( "Needed 8 bits-per-color, got " )
-			 + to_string( visual_type->bits_per_rgb_value )
-			 + " instead" );
-  }
-
-  /* make sure the colors are where we expect them */
-  if ( visual_type->red_mask != 0xFF0000
-       or visual_type->green_mask != 0x00FF00
-       or visual_type->blue_mask != 0x0000FF ) {
-    std::ostringstream color_layout;
-    color_layout << "Unexpected color layout: ";
-    color_layout << hex << "red=" << visual_type->red_mask;
-    color_layout << hex << ", green=" << visual_type->green_mask;
-    color_layout << hex << ", blue=" << visual_type->blue_mask;
-    throw runtime_error( color_layout.str() );
-  }
-
-  /* set image to all black */
-  memset( image_->data, 0, image_->size );
-}
-
-void XImage::put( XPixmap & pixmap, const GraphicsContext & gc )
+void XPixmap::put( const XImage & image, const GraphicsContext & gc )
 {
   check_noreply( "xcb_put_image_checked",
 		 xcb_put_image_checked( connection().get(),
-					image_->format,
-					pixmap.xcb_pixmap(),
+					XCB_IMAGE_FORMAT_Z_PIXMAP,
+					xcb_pixmap(),
 					gc.xcb_gc(),
-					image_->width,
-					image_->height,
+					image.width(),
+					image.height(),
 					0,
 					0,
 					0,
-					image_->depth,
-					image_->size,
-					image_->data ) );
+					24,
+					image.width() * image.height() * sizeof( RGBPixel ),
+					image.data() ) );
 }
 
-RGBPixel * XImage::pixel( const unsigned int column, const unsigned int row )
+RGBPixel & XImage::pixel( const unsigned int column, const unsigned int row )
 {
-  uint8_t * location = image_->data + row * image_->stride + column * 4; /* 32 bpp */
-  if ( location >= image_->data + image_->size ) {
+  if ( column >= width_ or row >= height_ ) {
     throw out_of_range( "attempted access to pixel outside image" );
   }
 
-  return reinterpret_cast<RGBPixel *>( location );
-}
-
-XImage::~XImage()
-{
-  xcb_image_destroy( image_ );
+  return image_.at( row * width() + column );
 }
 
 GraphicsContext::GraphicsContext( XPixmap & pixmap )
   : XCBObject( pixmap )
 {
-  array<uint32_t, 2> values = { default_screen()->black_pixel, default_screen()->white_pixel };
-
   check_noreply( "xcb_create_gc_checked",
 		 xcb_create_gc_checked( connection().get(),
 					gc_,
 					pixmap.xcb_pixmap(),
-					XCB_GC_FOREGROUND,
-					&values.at( 0 ) ) );
+					0,
+					nullptr ) );
 }
