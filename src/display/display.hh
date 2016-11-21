@@ -2,9 +2,11 @@
 #define DISPLAY_HH
 
 #include <xcb/xcb.h>
+#include <xcb/xcb_image.h>
 
 #include <string>
 #include <memory>
+#include <tuple>
 
 class XCBObject
 {
@@ -15,15 +17,15 @@ public:
   XCBObject( XCBObject && original );
   virtual ~XCBObject() {}
 
-  xcb_connection_t * xcb_connection( void ) { return connection_.get(); }
+  xcb_connection_t * xcb_connection() { return connection_.get(); }
 
 private:
   connection_type connection_;
 
 protected:
   void check_noreply( const std::string & context, const xcb_void_cookie_t & cookie );
-  const xcb_screen_t * default_screen( void ) const;
-  const connection_type & connection( void ) const { return connection_; }
+  const xcb_screen_t * default_screen() const;
+  const connection_type & connection() const { return connection_; }
 };
 
 class XPixmap;
@@ -36,7 +38,7 @@ private:
   uint32_t idle_event_ = xcb_generate_id( connection().get() );
   bool complete_ = true, idle_ = true;
 
-  void event_loop( void );
+  void event_loop();
 
 public:
   XWindow( const unsigned int width, const unsigned int height );
@@ -46,22 +48,22 @@ public:
   void set_name( const std::string & name );
 
   /* map the window on the screen */
-  void map( void );
+  void map();
 
   /* present a pixmap */
   void present( const XPixmap & pixmap, const unsigned int divisor, const unsigned int remainder );
 
   /* flush XCB */
-  void flush( void );
+  void flush();
 
   /* get the window's size */
-  std::pair<unsigned int, unsigned int> size( void ) const;
+  std::pair<unsigned int, unsigned int> size() const;
 
   /* get the underlying window */
-  const xcb_window_t & xcb_window( void ) const { return window_; }
+  const xcb_window_t & xcb_window() const { return window_; }
 
   /* get the window's visual */
-  xcb_visualtype_t * xcb_visual( void );
+  xcb_visualtype_t * xcb_visual();
 
   /* prevent copying */
   XWindow( const XWindow & other ) = delete;
@@ -71,7 +73,7 @@ public:
 class XPixmap : public XCBObject
 {
 private:
-  xcb_pixmap_t pixmap_;
+  xcb_pixmap_t pixmap_ = xcb_generate_id( connection().get() );
   xcb_visualtype_t * visual_;
   std::pair<unsigned int, unsigned int> size_;
 
@@ -80,13 +82,13 @@ public:
   ~XPixmap();
 
   /* get the underlying pixmap */
-  const xcb_pixmap_t & xcb_pixmap( void ) const { return pixmap_; }
+  const xcb_pixmap_t & xcb_pixmap() const { return pixmap_; }
 
   /* get the pixmap's visual */
-  xcb_visualtype_t * xcb_visual( void ) const { return visual_; }
+  xcb_visualtype_t * xcb_visual() const { return visual_; }
 
   /* get the pixmap's size */
-  std::pair<unsigned int, unsigned int> size( void ) const { return size_; }
+  std::pair<unsigned int, unsigned int> size() const { return size_; }
 
   /* prevent copying */
   XPixmap( const XPixmap & other ) = delete;
@@ -95,6 +97,40 @@ public:
   /* allow moving */
   XPixmap( XPixmap && other );
   XPixmap & operator=( XPixmap && other );
+};
+
+class GraphicsContext : public XCBObject
+{
+private:
+  xcb_gcontext_t gc_ = xcb_generate_id( connection().get() );
+
+public:
+  GraphicsContext( XPixmap & pixmap );
+
+  /* get the underlying gc */
+  const xcb_gcontext_t & xcb_gc() const { return gc_; }
+};
+
+struct RGBPixel
+{
+  uint8_t blue, green, red, xxx;
+};
+
+class XImage : public XCBObject
+{
+private:
+  xcb_image_t * image_;
+
+public:
+  XImage( XPixmap & pixmap );
+  ~XImage();
+
+  void put( XPixmap & pixmap, const GraphicsContext & gc );
+  RGBPixel * pixel( const unsigned int width, const unsigned int height );
+
+  /* prevent copying */
+  XImage( const XImage & other ) = delete;
+  XImage & operator=( const XImage & other ) = delete;
 };
 
 #endif

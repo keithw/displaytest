@@ -20,6 +20,7 @@ AC_PROG_RANLIB
 # Checks for libraries.
 PKG_CHECK_MODULES([XCB], [xcb])
 PKG_CHECK_MODULES([XCBPRESENT], [xcb-present])
+PKG_CHECK_MODULES([XCBIMAGE], [xcb-image])
 PKG_CHECK_MODULES([PANGOCAIRO], [pangocairo])
 
 # Checks for header files.

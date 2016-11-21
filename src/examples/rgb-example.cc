@@ -2,7 +2,6 @@
 #include <chrono>
 #include <thread>
 #include <iostream>
-#include <sstream>
 
 #include "display.hh"
 
@@ -17,39 +16,32 @@ int main()
   /* put the window on the screen */
   window.map();
 
-  /* construct a picture (pixmap) */
+  /* on the X server, construct a picture */
   XPixmap picture( window );
 
+  /* in our program (the X client), construct an image */
+  XImage image( picture );
+  GraphicsContext gc( picture );
 
-  auto visual_type = picture.xcb_visual();
-  cout << "Color masks:" << hex
-       << " red=" << visual_type->red_mask
-       << " green=" << visual_type->green_mask
-       << " blue=" << visual_type->blue_mask
-       << "\n";
+  /* draw alternating all-red or all-blue */
+  bool red_or_blue = false;
+  while ( true ) {
+    for ( unsigned int col = 0; col < picture.size().first; col++ ) {
+      for ( unsigned int row = 0; row < picture.size().second; row++ ) {
+	image.pixel( col, row )->red =  red_or_blue ? 255 : 0;
+	image.pixel( col, row )->blue = red_or_blue ? 0   : 255;
+      }
+    }
 
-  /* make sure it's R'G'B' 8-bits-per-channel */
-  if ( visual_type->bits_per_rgb_value != 8 ) {
-    throw runtime_error( string( "Needed 8 bits-per-color, got " )
-			 + to_string( visual_type->bits_per_rgb_value )
-			 + " instead" );
+    /* paint the image (client-side) onto the picture (server-side) */
+    image.put( picture, gc );
+
+    /* tell the server to paint the picture onto the window */
+    window.present( picture, 0, 0 );
+
+    /* next time, paint a different color */
+    red_or_blue = not red_or_blue;
   }
-
-  /* make sure the colors are where we expect them */
-  if ( visual_type->red_mask != 0xFF0000
-       or visual_type->green_mask != 0x00FF00
-       or visual_type->blue_mask != 0x0000FF ) {
-    ostringstream color_layout;
-    color_layout << "Unexpected color layout: ";
-    color_layout << hex << "red=" << visual_type->red_mask;
-    color_layout << hex << ", green=" << visual_type->green_mask;
-    color_layout << hex << ", blue=" << visual_type->blue_mask;
-    throw runtime_error( color_layout.str() );
-  }
-
-  /* now draw something on the pixmap */
-  /* probably will need an xcb_image_t and then draw it with
-     xcb_image_put */
 
   return EXIT_SUCCESS;
 }

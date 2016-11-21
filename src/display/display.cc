@@ -1,6 +1,8 @@
 #include <stdexcept>
 #include <iostream>
 #include <cstdlib>
+#include <sstream>
+#include <cstring>
 
 #include <xcb/present.h>
 
@@ -28,14 +30,14 @@ void XCBObject::check_noreply( const string & context, const xcb_void_cookie_t &
   }
 }
 
-const xcb_screen_t * XCBObject::default_screen( void ) const
+const xcb_screen_t * XCBObject::default_screen() const
 {
   return notnull( "xcb_setup_roots_iterator",
 		  xcb_setup_roots_iterator( notnull( "xcb_get_setup",
 						     xcb_get_setup( connection_.get() ) ) ).data );  
 }
 
-XCBObject::XCBObject( void )
+XCBObject::XCBObject()
   : connection_( notnull( "xcb_connect", xcb_connect( nullptr, nullptr ) ),
 		 [] ( xcb_connection_t * connection ) { xcb_disconnect( connection ); } )
 {}
@@ -78,18 +80,18 @@ XWindow::XWindow( const unsigned int width, const unsigned int height )
 						   XCB_PRESENT_EVENT_MASK_IDLE_NOTIFY ) );
 }
 
-void XWindow::map( void ) {
+void XWindow::map() {
   check_noreply( "xcb_map_window_checked",
 		 xcb_map_window_checked( connection().get(), window_ ) );
 }
 
-void XWindow::flush( void ) {
+void XWindow::flush() {
   if ( xcb_flush( connection().get() ) <= 0 ) {
     throw runtime_error( "xcb_flush: failed" );
   }
 }
 
-XWindow::~XWindow( void )
+XWindow::~XWindow()
 {
   try {
     check_noreply( "xcb_destroy_window_checked",
@@ -112,7 +114,7 @@ void XWindow::set_name( const string & name )
 					      name.data() ) );
 }
 
-xcb_visualtype_t * XWindow::xcb_visual( void )
+xcb_visualtype_t * XWindow::xcb_visual()
 {
   /* get the visual ID of the window */
   xcb_get_window_attributes_cookie_t cookie = xcb_get_window_attributes( connection().get(), window_ );
@@ -137,7 +139,7 @@ xcb_visualtype_t * XWindow::xcb_visual( void )
   throw runtime_error( "xcb_visual: no matching visualtype_t found" );
 }
 
-pair<unsigned int, unsigned int> XWindow::size( void ) const
+pair<unsigned int, unsigned int> XWindow::size() const
 {
   xcb_get_geometry_cookie_t cookie = xcb_get_geometry( connection().get(), window_ );
   unique_ptr<xcb_get_geometry_reply_t, free_deleter> geometry { notnull( "xcb_get_geometry_reply",
@@ -147,7 +149,6 @@ pair<unsigned int, unsigned int> XWindow::size( void ) const
 
 XPixmap::XPixmap( XWindow & window )
   : XCBObject( window ),
-    pixmap_( xcb_generate_id( connection().get() ) ),
     visual_( window.xcb_visual() ),
     size_( window.size() )
 {
@@ -220,7 +221,7 @@ void XWindow::present( const XPixmap & pixmap, const unsigned int divisor, const
   }
 }
 
-void XWindow::event_loop( void )
+void XWindow::event_loop()
 {
   xcb_generic_event_t * event = notnull( "xcb_wait_for_event",
 					 xcb_wait_for_event( connection().get() ) );
@@ -234,7 +235,93 @@ void XWindow::event_loop( void )
       throw runtime_error( "unexpected present event" );
     }
   } else {
-    // throw runtime_error( "unexpected event" );
-    // This is happening (but very rarely). Let's ignore for now. (KJW 1/23/2015)
+    cerr << "Unexpected response of type " << int( event->response_type ) << "\n";
   }
+}
+
+XImage::XImage( XPixmap & pixmap )
+  : XCBObject( pixmap ),
+    image_( notnull( "xcb_image_create_native",
+		     xcb_image_create_native( connection().get(),
+					      pixmap.size().first,
+					      pixmap.size().second,
+					      XCB_IMAGE_FORMAT_Z_PIXMAP,
+					      default_screen()->root_depth,
+					      nullptr,
+					      0,
+					      nullptr ) ) )
+{
+  /* confirm image has expected characteristics */
+  if ( image_->bpp != 32 ) {
+    throw runtime_error( "image storage not 32 bits per pixel" );
+  }
+
+  /* make sure it's R'G'B' 8-bits-per-channel */
+  const auto visual_type = pixmap.xcb_visual();
+
+  if ( visual_type->bits_per_rgb_value != 8 ) {
+    throw runtime_error( string( "Needed 8 bits-per-color, got " )
+			 + to_string( visual_type->bits_per_rgb_value )
+			 + " instead" );
+  }
+
+  /* make sure the colors are where we expect them */
+  if ( visual_type->red_mask != 0xFF0000
+       or visual_type->green_mask != 0x00FF00
+       or visual_type->blue_mask != 0x0000FF ) {
+    std::ostringstream color_layout;
+    color_layout << "Unexpected color layout: ";
+    color_layout << hex << "red=" << visual_type->red_mask;
+    color_layout << hex << ", green=" << visual_type->green_mask;
+    color_layout << hex << ", blue=" << visual_type->blue_mask;
+    throw runtime_error( color_layout.str() );
+  }
+
+  /* set image to all black */
+  memset( image_->data, 0, image_->size );
+}
+
+void XImage::put( XPixmap & pixmap, const GraphicsContext & gc )
+{
+  check_noreply( "xcb_put_image_checked",
+		 xcb_put_image_checked( connection().get(),
+					image_->format,
+					pixmap.xcb_pixmap(),
+					gc.xcb_gc(),
+					image_->width,
+					image_->height,
+					0,
+					0,
+					0,
+					image_->depth,
+					image_->size,
+					image_->data ) );
+}
+
+RGBPixel * XImage::pixel( const unsigned int column, const unsigned int row )
+{
+  uint8_t * location = image_->data + row * image_->stride + column * 4; /* 32 bpp */
+  if ( location >= image_->data + image_->size ) {
+    throw out_of_range( "attempted access to pixel outside image" );
+  }
+
+  return reinterpret_cast<RGBPixel *>( location );
+}
+
+XImage::~XImage()
+{
+  xcb_image_destroy( image_ );
+}
+
+GraphicsContext::GraphicsContext( XPixmap & pixmap )
+  : XCBObject( pixmap )
+{
+  array<uint32_t, 2> values = { default_screen()->black_pixel, default_screen()->white_pixel };
+
+  check_noreply( "xcb_create_gc_checked",
+		 xcb_create_gc_checked( connection().get(),
+					gc_,
+					pixmap.xcb_pixmap(),
+					XCB_GC_FOREGROUND,
+					&values.at( 0 ) ) );
 }
