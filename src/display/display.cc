@@ -159,13 +159,6 @@ XPixmap::XPixmap( XWindow & window )
 			 + " instead" );
   }
 
-  /* make sure screen is R'G'B' 8-bits-per-channel */
-  if ( visual_->bits_per_rgb_value != 8 ) {
-    throw runtime_error( string( "Needed 8 bits-per-color, got " )
-			 + to_string( visual_->bits_per_rgb_value )
-			 + " instead" );
-  }
-
   /* make sure the colors are where we expect them */
   if ( visual_->red_mask != 0xFF0000
        or visual_->green_mask != 0x00FF00
