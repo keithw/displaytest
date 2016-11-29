@@ -29,6 +29,8 @@ PKG_CHECK_MODULES([PANGOCAIRO], [pangocairo])
 # Checks for library functions.
 
 AC_CONFIG_FILES([Makefile
+		 third_party/Makefile
+		 third_party/decklink/Makefile
 		 src/Makefile
 		 src/display/Makefile
 		 src/examples/Makefile])
