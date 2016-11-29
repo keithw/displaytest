@@ -1,6 +1,7 @@
 #include <cstdlib>
 
 #include "display.hh"
+#include "DeckLinkAPI.h"
 
 using namespace std;
 
