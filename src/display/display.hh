@@ -125,7 +125,7 @@ public:
   XImage( XPixmap & pixmap );
 
   RGBPixel & pixel( const unsigned int column, const unsigned int row );
-  const uint8_t * data() const { return &image_.at( 0 ).blue; }
+  uint8_t * data() const { return &image_.at( 0 ).blue; }
 
   unsigned int width() const { return width_; }
   unsigned int height() const { return height_; }

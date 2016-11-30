@@ -8,7 +8,7 @@ AC_CONFIG_SRCDIR([src/display/display.hh])
 AC_CONFIG_HEADERS([config.h])
 
 # Add picky CXXFLAGS
-CXX14_FLAGS="-std=c++14 -pthread"
+CXX14_FLAGS="-std=c++11 -pthread"
 PICKY_CXXFLAGS="-pedantic -Wall -Wextra -Weffc++ -Werror"
 AC_SUBST([CXX14_FLAGS])
 AC_SUBST([PICKY_CXXFLAGS])
