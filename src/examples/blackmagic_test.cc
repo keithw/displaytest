@@ -15,11 +15,10 @@ static pthread_mutex_t	g_sleepMutex;
 static pthread_cond_t	g_sleepCond;
 static bool				g_do_exit = false;
 
-static BMDConfig		g_config;
 class CaptureAndView : public IDeckLinkInputCallback
 {
 public:
-	CaptureAndView(XWindow &xw, WPixmap &xp, XImage &xi, GraphicsContext &gc) : 
+	CaptureAndView(XWindow &xw, XPixmap &xp, XImage &xi, GraphicsContext &gc) : 
 		m_refCount(1), 
 		window(xw), 
 		picture(xp),
@@ -27,27 +26,37 @@ public:
 		gc(gc) 
 	{}
 
-	virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID *ppv) { return E_NOINTERFACE; }
-	virtual ULONG STDMETHODCALLTYPE AddRef(void) {}
-	virtual ULONG STDMETHODCALLTYPE  Release(void) {}
-	virtual HRESULT STDMETHODCALLTYPE VideoInputFormatChanged(BMDVideoInputFormatChangedEvents events, IDeckLinkDisplayMode *mode, BMDDetectedVideoInputFormatFlags formatFlags) {}
-	virtual HRESULT STDMETHODCALLTYPE VideoInputFrameArrived(IDeckLinkVideoInputFrame* videoFrame, IDeckLinkAudioInputPacket* audioFrame) {
+	virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, LPVOID*) { return E_NOINTERFACE; }
+	virtual ULONG STDMETHODCALLTYPE AddRef(void) { 	return __sync_add_and_fetch(&m_refCount, 1); }
+	virtual ULONG STDMETHODCALLTYPE  Release(void) { 	
+		int32_t newRefValue = __sync_sub_and_fetch(&m_refCount, 1);
+		if (newRefValue == 0) {
+			delete this;
+			return 0;
+		}
+		return newRefValue; 
+	}
+	virtual HRESULT STDMETHODCALLTYPE VideoInputFormatChanged(BMDVideoInputFormatChangedEvents, 
+															  IDeckLinkDisplayMode *, 
+															  BMDDetectedVideoInputFormatFlags) {
+		return S_OK;
+	}
+	virtual HRESULT STDMETHODCALLTYPE VideoInputFrameArrived(IDeckLinkVideoInputFrame* videoFrame, IDeckLinkAudioInputPacket*) {
 		void*	frameBytes;
-		void*	audioFrameBytes;
-
 		// Handle Video Frame
 		if (videoFrame) {
 			if (videoFrame->GetFlags() & bmdFrameHasNoInputSource) {
-				printf("Frame received (#%lu) - No input signal detected\n", g_frameCount);
+				printf("Frame received  - No input signal detected\n");
 			} else {
 				printf("Frame received - Size: %li bytes\n",
 				videoFrame->GetRowBytes() * videoFrame->GetHeight());
 
 
 				if (videoFrame->GetHeight() == 720) {
-					videoFrame->GetBytes(&image.data());
+					videoFrame->GetBytes(&frameBytes);
+					memcpy(image.data_unsafe(), frameBytes, videoFrame->GetRowBytes() * videoFrame->GetHeight());
 				} else {
-					printf("Frame is not 720p\n", );
+					printf("Frame is not 720p\n");
 				}
 			}
 		}
@@ -72,11 +81,10 @@ static void sigfunc(int signum)
 }
 
 
-int main(int argc, char *argv[])
+int main()
 {
 	HRESULT							result;
 	int								exitStatus = 1;
-	int								idx;
 
 	IDeckLinkIterator*				deckLinkIterator = NULL;
 	IDeckLink*						deckLink = NULL;
@@ -88,7 +96,6 @@ int main(int argc, char *argv[])
 	IDeckLinkDisplayModeIterator*	displayModeIterator = NULL;
 	IDeckLinkDisplayMode*			displayMode = NULL;
 	char*							displayModeName = NULL;
-	BMDDisplayModeSupport			displayModeSupported;
 
 	CaptureAndView*					inputViewer = NULL;
 
@@ -98,6 +105,25 @@ int main(int argc, char *argv[])
 	signal(SIGINT, sigfunc);
 	signal(SIGTERM, sigfunc);
 	signal(SIGHUP, sigfunc);
+
+	// if (!IsDeckLinkAPIPresent) {
+	// 	printf("No deckLink API\n");
+	// 	exit(1);
+	// }
+	/* construct a window */
+  	XWindow window( 1280, 720 );
+ 	window.set_name( "RGB example" );
+
+  	/* put the window on the screen */
+  	window.map();
+
+  	/* on the X server, construct a picture */
+  	XPixmap picture( window );
+
+  	/* in our program (the X client), construct an image */
+  	XImage image( picture );
+  	GraphicsContext gc( picture );
+
 
 	// Get the DeckLink device
 	deckLinkIterator = CreateDeckLinkIteratorInstance();
@@ -111,7 +137,7 @@ int main(int argc, char *argv[])
 
 	if (result != S_OK || deckLink == NULL)
 	{
-		fprintf(stderr, "Unable to get DeckLink device %u\n", g_config.m_deckLinkIndex);
+		fprintf(stderr, "Could not find DeckLink device - result = %08x\n", result);
 		goto bail;
 	}
 
@@ -147,20 +173,6 @@ int main(int argc, char *argv[])
 	if (result != S_OK)
 	{	}
 
-	/* construct a window */
-  	XWindow window( 1280, 720 );
- 	window.set_name( "RGB example" );
-
-  	/* put the window on the screen */
-  	window.map();
-
-  	/* on the X server, construct a picture */
-  	XPixmap picture( window );
-
-  	/* in our program (the X client), construct an image */
-  	XImage image( picture );
-  	GraphicsContext gc( picture );
-
 	// Configure the capture callback
 	inputViewer = new CaptureAndView(window, picture, image, gc);
 	deckLinkInput->SetCallback(inputViewer);
@@ -169,14 +181,14 @@ int main(int argc, char *argv[])
 	while (!g_do_exit)
 	{
 		// Start capturing
-		result = g_deckLinkInput->EnableVideoInput(displayMode->GetDisplayMode(), bmdFormat8BitARGB, bmdVideoInputEnableFormatDetection);
+		result = deckLinkInput->EnableVideoInput(displayMode->GetDisplayMode(), bmdFormat8BitARGB, bmdVideoInputEnableFormatDetection);
 		if (result != S_OK)
 		{
 			fprintf(stderr, "Failed to enable video input. Is another application using the card?\n");
 			goto bail;
 		}
 
-		result = g_deckLinkInput->StartStreams();
+		result = deckLinkInput->StartStreams();
 		if (result != S_OK)
 			goto bail;
 
@@ -188,9 +200,9 @@ int main(int argc, char *argv[])
 		pthread_mutex_unlock(&g_sleepMutex);
 
 		fprintf(stderr, "Stopping Capture\n");
-		g_deckLinkInput->StopStreams();
-		g_deckLinkInput->DisableAudioInput();
-		g_deckLinkInput->DisableVideoInput();
+		deckLinkInput->StopStreams();
+		deckLinkInput->DisableAudioInput();
+		deckLinkInput->DisableVideoInput();
 	}
 
 bail:

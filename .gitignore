@@ -29,3 +29,5 @@ Makefile.in
 /compile
 
 /src/examples/rgb-example
+/src/examples/blackmagic-test
+/src/examples/capture
